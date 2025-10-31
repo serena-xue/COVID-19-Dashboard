@@ -94,9 +94,20 @@ def main():
     st.markdown('<h1 class="main-header">COVID-19 Data Dashboard</h1>', unsafe_allow_html=True)
     st.markdown("---")
     
-    # S3 configuration
-    bucket_name = st.secrets.get("S3_BUCKET", "serena-covid-data-bucket")
-    prefix = st.secrets.get("S3_PREFIX", "processed/covidcast_by_state/")
+    # S3 configuration from secrets.toml
+    try:
+        bucket_name = st.secrets["S3_BUCKET"]
+        prefix = st.secrets["S3_PREFIX"]
+    except KeyError:
+        st.error("❌ S3 configuration not found in secrets.toml")
+        st.info("""
+        **Please add the following to `.streamlit/secrets.toml`:**
+        ```
+        S3_BUCKET = "your-bucket-name"
+        S3_PREFIX = "your-prefix-path/"
+        ```
+        """)
+        return
     
     # Load data
     with st.spinner("Loading data from S3..."):
