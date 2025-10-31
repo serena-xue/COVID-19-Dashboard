@@ -1,0 +1,126 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import os
+from datetime import datetime, timedelta
+
+# Page configuration
+st.set_page_config(
+    page_title="COVID-19 Dashboard",
+    page_icon="🦠",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS
+st.markdown("""
+    <style>
+    .main-header {
+        font-size: 3rem;
+        font-weight: bold;
+        color: #1f77b4;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .metric-card {
+        background-color: #f0f2f6;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 5px solid #1f77b4;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# Load data from S3
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def load_data_from_s3(bucket_name, prefix):
+    """Load COVID-19 data from S3 bucket using Parquet format."""
+    try:
+        # Construct S3 path
+        s3_path = f"s3://{bucket_name}/{prefix}"
+        
+        # Read Parquet files directly from S3
+        df = pd.read_parquet(s3_path, engine="pyarrow")
+        
+        # Convert time_value to datetime if it exists (format: '2021-01-07')
+        df['time_value'] = pd.to_datetime(df['time_value'], format='%Y-%m-%d', errors='coerce')
+        
+        return df
+    
+    except Exception as e:
+        st.error(f"Error loading data from S3: {str(e)}")
+        st.info("Make sure your AWS credentials are configured in .streamlit/secrets.toml")
+        return None
+
+def empty_warning(df):
+    if df is None or df.empty:
+        st.error("❌ Unable to load data. Please check your S3 configuration and credentials.")
+        st.info("""
+        **Setup Instructions:**
+        1. Add your AWS credentials to `.streamlit/secrets.toml`
+        2. Ensure the S3 bucket and prefix are correct
+        3. Verify that the bucket contains CSV files
+        """)
+        return False
+    else:
+        return True
+
+def draw_positive_geo(df):
+    """Draw a choropleth map of positive test rates by county."""
+    # Remove rows with missing positive test rate
+    df_copy = df.dropna(subset=['smoothed_wtested_positive_14d']).copy()
+    
+    # Create choropleth map
+    fig = px.choropleth(
+        df_copy,
+        geojson="https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json",
+        locations='geo_value',
+        color='smoothed_wtested_positive_14d',
+        color_continuous_scale="Reds",
+        range_color=(0, 100),
+        scope="usa",
+        labels={'smoothed_wtested_positive_14d': 'Positive Test Rate (%)'},
+        title='COVID-19 Positive Test Rate by County'
+    )
+    
+    fig.update_layout(margin={"r":0,"t":50,"l":0,"b":0})
+    return fig
+
+# Main app
+def main():
+    # Header
+    st.markdown('<h1 class="main-header">COVID-19 Data Dashboard</h1>', unsafe_allow_html=True)
+    st.markdown("---")
+    
+    # S3 configuration
+    bucket_name = st.secrets.get("S3_BUCKET", "serena-covid-data-bucket")
+    prefix = st.secrets.get("S3_PREFIX", "processed/covidcast_by_state/")
+    
+    # Load data
+    with st.spinner("Loading data from S3..."):
+        df = load_data_from_s3(bucket_name, prefix)
+    
+    if not empty_warning(df):
+        return
+    
+    # print data intro
+    st.write("### Data Intro")
+    db_intro = "The dataset used in this study is derived from the COVID-19 Trends and Impact Survey (CTIS), conducted by the Delphi Group at Carnegie Mellon University. This dataset ag gregates responses from a representative sample of Facebook users (aged 18+) at the U.S. county level. Responses were gathered during one-month time frame at the peak of the COVID pandemic (from January 07, 2021 to February 12, 2021), offering rich information to analyze temporal dynamics in health behaviors and perceptions. The dataset contains 25627 instances where each row represents one U.S. county in a given day."
+    st.markdown(db_intro)
+
+    # Draw map: "geo_value" is FIPS code for counties; "smoothed_wtested_positive_14d" is positive test rate.
+    # Remove rows with missing smoothed_wtested_positive_14d. Use a copy for it.
+    # Draw heatmap of positive test rate
+    # "smoothed_wtested_positive_14d" range from 0 to 100
+    fig_positive_geo = draw_positive_geo(df)
+    st.plotly_chart(fig_positive_geo, use_container_width=True)
+    
+    # Draw map："geo_value" is FIPS code for counties; "smoothed_wcovid_vaccinated" is vaccination rate.
+    # fig_vaccination_geo = draw_vaccination_geo(df)
+    # st.plotly_chart(fig_vaccination_geo, use_container_width=True)
+
+    
+if __name__ == "__main__":
+    main()
