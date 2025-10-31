@@ -1,0 +1,7 @@
+streamlit
+pandas
+plotly
+boto3
+python-dateutil
+pyarrow
+s3fs
