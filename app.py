@@ -50,19 +50,12 @@ def load_data_from_s3(bucket_name, prefix):
         return df
     
     except Exception as e:
-        st.error(f"Error loading data from S3: {str(e)}")
-        st.info("Make sure your AWS credentials are configured in .streamlit/secrets.toml")
+        st.error("Error loading data from database")
         return None
 
 def empty_warning(df):
     if df is None or df.empty:
-        st.error("❌ Unable to load data. Please check your S3 configuration and credentials.")
-        st.info("""
-        **Setup Instructions:**
-        1. Add your AWS credentials to `.streamlit/secrets.toml`
-        2. Ensure the S3 bucket and prefix are correct
-        3. Verify that the bucket contains CSV files
-        """)
+        st.error("❌ Unable to load data. Please check your db configuration and credentials.")
         return False
     else:
         return True
@@ -83,6 +76,60 @@ def draw_positive_geo(df):
         scope="usa",
         labels={'smoothed_wtested_positive_14d': 'Positive Test Rate (%)'},
         title='COVID-19 Positive Test Rate by County'
+    )
+    
+    fig.update_layout(margin={"r":0,"t":50,"l":0,"b":0})
+    return fig
+
+def draw_positive_state(df):
+    """Draw a choropleth map of positive test rates by state."""
+    # Remove rows with missing positive test rate
+    df_copy = df.dropna(subset=['smoothed_wtested_positive_14d']).copy()
+
+    # Aggregate by state_abbr
+    state_df = df_copy.groupby('state_abbr')['smoothed_wtested_positive_14d'].mean().reset_index()
+
+    min_rate = state_df['smoothed_wtested_positive_14d'].min()
+    max_rate = state_df['smoothed_wtested_positive_14d'].max()
+    
+    # Create choropleth map
+    fig = px.choropleth(
+        state_df,
+        locations='state_abbr',
+        locationmode='USA-states',
+        color='smoothed_wtested_positive_14d',
+        color_continuous_scale="Reds",
+        range_color=(min_rate, max_rate),
+        scope="usa",
+        labels={'smoothed_wtested_positive_14d': 'Avg Positive Test Rate (%)'},
+        title='Average COVID-19 Positive Test Rate by State'
+    )
+    
+    fig.update_layout(margin={"r":0,"t":50,"l":0,"b":0})
+    return fig
+
+def draw_vaccination_state(df):
+    """Draw a choropleth map of vaccination rates by state."""
+    # Remove rows with missing vaccination rate
+    df_copy = df.dropna(subset=['smoothed_wcovid_vaccinated']).copy()
+    
+    # Aggregate by state_abbr
+    state_df = df_copy.groupby('state_abbr')['smoothed_wcovid_vaccinated'].mean().reset_index()
+
+    min_rate = state_df['smoothed_wcovid_vaccinated'].min()
+    max_rate = state_df['smoothed_wcovid_vaccinated'].max()
+
+    # Create choropleth map
+    fig = px.choropleth(
+        state_df,
+        locations='state_abbr',
+        locationmode='USA-states',
+        color='smoothed_wcovid_vaccinated',
+        color_continuous_scale="Greens",
+        range_color=(min_rate, max_rate),
+        scope="usa",
+        labels={'smoothed_wcovid_vaccinated': 'Avg Vaccination Rate (%)'},
+        title='Average COVID-19 Vaccination Rate by State'
     )
     
     fig.update_layout(margin={"r":0,"t":50,"l":0,"b":0})
@@ -125,13 +172,21 @@ def main():
     # Remove rows with missing smoothed_wtested_positive_14d. Use a copy for it.
     # Draw heatmap of positive test rate
     # "smoothed_wtested_positive_14d" range from 0 to 100
-    fig_positive_geo = draw_positive_geo(df)
-    st.plotly_chart(fig_positive_geo, use_container_width=True)
+    # fig_positive_geo = draw_positive_geo(df)
+    # st.plotly_chart(fig_positive_geo, use_container_width=True)
     
     # Draw map："geo_value" is FIPS code for counties; "smoothed_wcovid_vaccinated" is vaccination rate.
     # fig_vaccination_geo = draw_vaccination_geo(df)
     # st.plotly_chart(fig_vaccination_geo, use_container_width=True)
+    
+    # Draw map: state_name to positive rate
+    # state name format: ALABAMA, first make sure it matches plotly state names
+    fig_positive_state = draw_positive_state(df)
+    st.plotly_chart(fig_positive_state, use_container_width=True)
 
+    # Draw map: state_name to vaccination rate
+    fig_vaccination_state = draw_vaccination_state(df)
+    st.plotly_chart(fig_vaccination_state, use_container_width=True)
     
 if __name__ == "__main__":
     main()
